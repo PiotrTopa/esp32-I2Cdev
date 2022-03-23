@@ -2,8 +2,10 @@
 I2Cdev device library code is placed under the MIT license
 Copyright (c) 2015 Jeff Rowberg, Nicolas Baldeck
 
-Rework to make it better PlatformIO componenet and allow use of more
-than one I2C channel on ESP32.
+Rework:
+- as cpp object
+- allow use of more than one I2C port
+- some minor protocol fixes and consistency
 Copyright (c) 2022 Piotr Topa
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -32,21 +34,13 @@ THE SOFTWARE.
 #include <driver/i2c.h>
 #include "freertos/FreeRTOS.h"
 
-#define I2C_SDA_PORT gpioPortA
-#define I2C_SDA_PIN 0
-#define I2C_SDA_MODE gpioModeWiredAnd
-#define I2C_SDA_DOUT 1
-
-#define I2C_SCL_PORT gpioPortA
-#define I2C_SCL_PIN 1
-#define I2C_SCL_MODE gpioModeWiredAnd
-#define I2C_SCL_DOUT 1
+#define I2C_NUM_DEFAULT I2C_NUM_0
 
 class I2Cdev
 {
 public:
-    I2Cdev(uint8_t i2cChannelNumber);
-    void initialize(int sdaGpioNumber, int sclGpioNumber, uint32_t clockSpeed);
+    I2Cdev(i2c_port_t i2cPortNumber = I2C_NUM_DEFAULT);
+    void initialize(gpio_num_t sdaGpioNumber, gpio_num_t sclGpioNumber, uint32_t clockSpeed);
     void enable(bool isEnabled);
 
     int8_t readBit(uint8_t devAddr, uint8_t regAddr, uint8_t bitNum, uint8_t *data, uint16_t timeout = CONFIG_I2C_BUS_DEFAULT_READ_TIMEOUT);
@@ -62,11 +56,8 @@ public:
     bool writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *data);
 
 private:
-    void SelectRegister(uint8_t dev, uint8_t reg);
-    uint16_t readTimeout;
-    uint8_t i2cNum;
+    i2c_port_t i2cNum;
     i2c_config_t conf;
-    SemaphoreHandle_t xBusSemaphore = NULL;
 };
 
 #endif /* _I2CDEV_H_ */

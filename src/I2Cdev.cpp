@@ -34,31 +34,28 @@ THE SOFTWARE.
 
 #include "I2Cdev.h"
 
-#define I2C_NUM_DEFAULT I2C_NUM_0
-
-static const char *TAG = "I2Cdev";
+static const char* TAG = "I2Cdev";
 
 /** Constructor.
  */
-I2Cdev::I2Cdev(uint8_t i2cChannelNumber)
+I2Cdev::I2Cdev(i2c_port_t i2cPortNumber)
 {
-	i2cNum = i2cChannelNumber;
-	xBusSemaphore = xSemaphoreCreateBinary();
-	xSemaphoreGive(xBusSemaphore);
+	i2cNum = i2cPortNumber;
 }
 
 /** Initialize I2C
  */
-void I2Cdev::initialize(int sdaGpioNumber, int sclGpioNumber, uint32_t clockSpeed)
+void I2Cdev::initialize(gpio_num_t sdaGpioNumber, gpio_num_t sclGpioNumber, uint32_t clockSpeed)
 {
+	ESP_LOGI(TAG, "Initializing I2C; port: %d, GPIO_SDA: %d, GPIO_SCL: %d, CLOCK: %d", i2cNum, sdaGpioNumber, sclGpioNumber, clockSpeed);
 	conf.mode = I2C_MODE_MASTER;
-	conf.sda_io_num = (gpio_num_t)sdaGpioNumber;
-	conf.scl_io_num = (gpio_num_t)sclGpioNumber;
+	conf.sda_io_num = sdaGpioNumber;
+	conf.scl_io_num = sclGpioNumber;
 	conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
 	conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
 	conf.master.clk_speed = clockSpeed;
 	ESP_ERROR_CHECK(i2c_param_config(i2cNum, &conf));
-	ESP_ERROR_CHECK(i2c_driver_install(i2cNum, I2C_MODE_MASTER, 0, 0, 0));
+	ESP_ERROR_CHECK(i2c_driver_install(i2cNum, conf.mode, 0, 0, 0));
 }
 
 /** Enable or disable I2C
@@ -137,28 +134,22 @@ int8_t I2Cdev::readBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8
 {
 	i2c_cmd_handle_t cmd;
 
-	// if (xSemaphoreTake(xBusSemaphore, (TickType_t)CONFIG_I2C_BUS_ACCESS_TIMEOUT / portTICK_PERIOD_MS) == pdTRUE)
-	//{
 	cmd = i2c_cmd_link_create();
+	ESP_ERROR_CHECK(i2c_master_start(cmd));
+	ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (devAddr << 1) | I2C_MASTER_WRITE, 1));
+	ESP_ERROR_CHECK(i2c_master_write_byte(cmd, regAddr, 1));	
 	ESP_ERROR_CHECK(i2c_master_start(cmd));
 	ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (devAddr << 1) | I2C_MASTER_READ, 1));
 
-	if (length > 1)
+	if (length > 1) {
 		ESP_ERROR_CHECK(i2c_master_read(cmd, data, length - 1, I2C_MASTER_ACK));
+	}
 
 	ESP_ERROR_CHECK(i2c_master_read_byte(cmd, data + length - 1, I2C_MASTER_NACK));
 
 	ESP_ERROR_CHECK(i2c_master_stop(cmd));
-	ESP_ERROR_CHECK(i2c_master_cmd_begin(i2cNum, cmd, 1000 / portTICK_PERIOD_MS));
+	ESP_ERROR_CHECK(i2c_master_cmd_begin(i2cNum, cmd, timeout / portTICK_PERIOD_MS));
 	i2c_cmd_link_delete(cmd);
-
-	//	xSemaphoreGive(xBusSemaphore);
-	//}
-	// else
-	//{
-	//	ESP_LOGW(TAG, "Timeout reached waiting for bus available");
-	//	return 0;
-	//}
 
 	return length;
 }
@@ -169,27 +160,6 @@ bool I2Cdev::writeWord(uint8_t devAddr, uint8_t regAddr, uint16_t data)
 	uint8_t data1[] = {(uint8_t)(data >> 8), (uint8_t)(data & 0xff)};
 	writeBytes(devAddr, regAddr, 2, data1);
 	return true;
-}
-
-void I2Cdev::SelectRegister(uint8_t dev, uint8_t reg)
-{
-	i2c_cmd_handle_t cmd;
-	// if (xSemaphoreTake(xBusSemaphore, (TickType_t)CONFIG_I2C_BUS_ACCESS_TIMEOUT / portTICK_PERIOD_MS) == pdTRUE)
-	//{
-	cmd = i2c_cmd_link_create();
-	ESP_ERROR_CHECK(i2c_master_start(cmd));
-	ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (dev << 1) | I2C_MASTER_WRITE, 1));
-	ESP_ERROR_CHECK(i2c_master_write_byte(cmd, reg, 1));
-	ESP_ERROR_CHECK(i2c_master_stop(cmd));
-	ESP_ERROR_CHECK(i2c_master_cmd_begin(i2cNum, cmd, 1000 / portTICK_PERIOD_MS));
-	i2c_cmd_link_delete(cmd);
-		//	xSemaphoreGive(xBusSemaphore);
-	//}
-	// else
-	//{
-	//	ESP_LOGW(TAG, "Timeout reached waiting for bus available");
-	//	return 0;
-	//}
 }
 
 /** write a single bit in an 8-bit device register.
@@ -250,11 +220,6 @@ bool I2Cdev::writeByte(uint8_t devAddr, uint8_t regAddr, uint8_t data)
 {
 	i2c_cmd_handle_t cmd;
 
-	SelectRegister(devAddr, regAddr);
-
-	// if (xSemaphoreTake(xBusSemaphore, (TickType_t)CONFIG_I2C_BUS_ACCESS_TIMEOUT / portTICK_PERIOD_MS) == pdTRUE)
-	//{
-
 	cmd = i2c_cmd_link_create();
 	ESP_ERROR_CHECK(i2c_master_start(cmd));
 	ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (devAddr << 1) | I2C_MASTER_WRITE, 1));
@@ -263,14 +228,6 @@ bool I2Cdev::writeByte(uint8_t devAddr, uint8_t regAddr, uint8_t data)
 	ESP_ERROR_CHECK(i2c_master_stop(cmd));
 	ESP_ERROR_CHECK(i2c_master_cmd_begin(i2cNum, cmd, 1000 / portTICK_PERIOD_MS));
 	i2c_cmd_link_delete(cmd);
-
-	//xSemaphoreGive(xBusSemaphore);
-	//}
-	// else
-	//{
-	//	ESP_LOGW(TAG, "Timeout reached waiting for bus available");
-	//	return 0;
-	//}
 
 	return true;
 }
@@ -285,9 +242,7 @@ bool I2Cdev::writeByte(uint8_t devAddr, uint8_t regAddr, uint8_t data)
 bool I2Cdev::writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_t *data)
 {
 	i2c_cmd_handle_t cmd;
-	
-	// if (xSemaphoreTake(xBusSemaphore, (TickType_t)CONFIG_I2C_BUS_ACCESS_TIMEOUT / portTICK_PERIOD_MS) == pdTRUE)
-	//{
+
 	cmd = i2c_cmd_link_create();
 	ESP_ERROR_CHECK(i2c_master_start(cmd));
 	ESP_ERROR_CHECK(i2c_master_write_byte(cmd, (devAddr << 1) | I2C_MASTER_WRITE, 1));
@@ -297,12 +252,6 @@ bool I2Cdev::writeBytes(uint8_t devAddr, uint8_t regAddr, uint8_t length, uint8_
 	ESP_ERROR_CHECK(i2c_master_stop(cmd));
 	ESP_ERROR_CHECK(i2c_master_cmd_begin(i2cNum, cmd, 1000 / portTICK_PERIOD_MS));
 	i2c_cmd_link_delete(cmd);
-		//}
-	// else
-	//{
-	//	ESP_LOGW(TAG, "Timeout reached waiting for bus available");
-	//	return 0;
-	//}
 
 	return true;
 }
